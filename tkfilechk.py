@@ -10,7 +10,25 @@ args.add_argument("--path",
                   default=pathlib.Path.home()/"Music")
 args.add_argument("--recurse",
                   action="store_true")
+args.add_argument("--ext",
+                  action="append")
+args.add_argument("--theme",
+                  choices=["light","dark"])
+args.add_argument("--no-rescan",action="store_true")
+
+
 ns = args.parse_args()
+
+DBPATH = ns.path / "_filechk.db"
+
+EXTENSIONS = set()
+if ns.ext:
+    for ext in ns.ext:
+        if not ext.startswith("."):
+            t = "." + ext
+        else:
+            t = ext
+        EXTENSIONS.add(t)
 
 UNCHECKED = "\u2610"
 CHECKED = "\u2612"
@@ -56,12 +74,16 @@ class Library:
     def cx(self):
         if not self._handle:
             self._handle = sqlite3.connect(
-                "items.db",
+                DBPATH,
                 factory=ItemsLibrarian)
         return self._handle
     def populate_from(self,path,recurse):
         print("populating from path:",path)
         for p in iter_paths(path,recurse):
+            if p == DBPATH:
+                continue
+            if EXTENSIONS and p.suffix not in EXTENSIONS:
+                continue
             stats = p.stat()
             self.cx.execute(
                 "insert into items (path,name,mtime,size) values (?,?,?,?)",
@@ -72,9 +94,8 @@ class Library:
         self.cx.commit()
     def view(self):
         yield from self.cx.execute(
-            "select id,path,name,mtime,size,status,notes from items")
+            "select id,path,name,mtime,size,status,notes from items order by mtime")
     def set_status(self,oid,status):
-        print("oid,status:",oid,status)
         self.cx.execute(
             "update items set status=? where id=?",
             (status,oid))
@@ -87,10 +108,8 @@ class Library:
 
 
 db = Library()
-print("db.cx:",db.cx)
-db.populate_from(ns.path,ns.recurse)
-# list(map(print,db.cx.iterdump()))
-# list(map(print,db.view()))
+if not DBPATH.is_file() or not ns.no_rescan:
+    db.populate_from(ns.path,ns.recurse)
 
 class App(tk.Tk):
     @property
@@ -112,7 +131,6 @@ class App(tk.Tk):
         self.selection_data = v
     def fill_tree(self):
         self.tree.delete(*self.tree.get_children())
-
         for oid,path,name,mtime,size,status,notes in db.view():
             modified = datetime.datetime.fromtimestamp(
                 mtime,tz=datetime.timezone.utc)
@@ -144,7 +162,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.file_ls = tk.StringVar()
-        self.mainframe = ttk.Labelframe(self,text="foo")
+        self.title(ns.path.name)
+        self.mainframe = ttk.Labelframe(self,text=str(ns.path))
         self.mainframe.pack(fill="both",expand=True)
         self.scrollbar = ttk.Scrollbar(self.mainframe)
         self.tree = ttk.Treeview(self.mainframe,yscrollcommand=self.scrollbar.set)
@@ -167,5 +186,11 @@ class App(tk.Tk):
 
 if __name__ == "__main__":
     app = App()
+    if ns.theme == "dark":
+        app.tk.call("source", "azure.tcl")
+        app.tk.call("set_theme", "dark")
+    elif ns.theme == "light":
+        app.tk.call("source", "azure.tcl")
+        app.tk.call("set_theme", "light")
     app.mainloop()
 
