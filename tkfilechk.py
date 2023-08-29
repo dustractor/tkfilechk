@@ -1,3 +1,4 @@
+# version 0.1
 import tkinter as tk
 import tkinter.ttk as ttk
 import sqlite3,pathlib,os,argparse,datetime
